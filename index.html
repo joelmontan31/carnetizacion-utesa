@@ -336,10 +336,9 @@
 
   <div class="result" id="result">
     <div class="icon-r">✅</div>
-    <div class="ticket" id="ticketNum">TICKET #0000</div>
     <div class="estudiante-badge" id="estudianteBadge"></div>
     <div class="msg">¡Documento recibido!</div>
-    <div class="msg-sub">El encargado del Departamento de Carnetización ya puede visualizarlo e imprimirlo.<br><br>Conserva tu número de ticket por si necesitas verificar tu envío.</div>
+    <div class="msg-sub">El encargado del Departamento de Carnetización ya puede visualizarlo e imprimirlo.</div>
     <br>
     <button class="btn" onclick="resetForm()" style="margin-top:8px">Enviar otro documento</button>
   </div>
@@ -368,21 +367,14 @@
 
   const MAX_SIZE = 20 * 1024 * 1024; // 20 MB
 
-  // ── Validación de matrícula ──────────────────────────────────────
-  // Formato válido: dígitos con al menos un guión (ej. 1-24-8200)
-  // Si es solo dígitos sin guión → advertencia
-  // Si tiene letras → se trata como nombre completo
-
+  // ── Validación: cualquier texto no vacío es válido ───────────────
   function clasificarInput(val) {
     const trimmed = val.trim();
     if (!trimmed) return { tipo: "vacio", ok: false };
-    // Solo dígitos (sin guiones): probable matrícula mal escrita
-    if (/^\d+$/.test(trimmed)) return { tipo: "digitos_sin_guion", ok: false };
-    // Tiene dígitos Y guiones (patrón matrícula)
-    if (/^\d[\d-]+\d$/.test(trimmed) && trimmed.includes("-")) return { tipo: "matricula", ok: true };
-    // Texto con letras → nombre completo
+    // Si tiene letras → nombre completo
     if (/[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]/.test(trimmed)) return { tipo: "nombre", ok: true };
-    return { tipo: "otro", ok: false };
+    // Solo números o números con guiones → matrícula
+    return { tipo: "matricula", ok: true };
   }
 
   window.onMatriculaInput = function(input) {
@@ -396,11 +388,6 @@
     if (!val.trim()) {
       hint.textContent = "Si no conoces tu matrícula, escribe tu nombre completo.";
       hint.classList.add("hint-info");
-      document.getElementById("histBox").style.display = "none";
-    } else if (result.tipo === "digitos_sin_guion") {
-      input.classList.add("input-err");
-      hint.textContent = "Falta agregar los guiones. Ejemplo: 1-24-8200";
-      hint.classList.add("hint-err");
       document.getElementById("histBox").style.display = "none";
     } else if (result.tipo === "matricula") {
       input.classList.add("input-ok");
@@ -420,7 +407,6 @@
     const result = clasificarInput(val);
     if (!result.ok) return;
 
-    // Consultar historial en Firebase
     try {
       const snap = await getDocs(collection(db, "documentos"));
       let count = 0;
@@ -435,19 +421,11 @@
       const histSub = document.getElementById("histSub");
 
       histCount.textContent = count;
-      if (result.tipo === "nombre") {
-        histSub.textContent = count === 1
-          ? "documento enviado con este nombre"
-          : "documentos enviados con este nombre";
-      } else {
-        histSub.textContent = count === 1
-          ? "documento enviado con esta matrícula"
-          : "documentos enviados con esta matrícula";
-      }
+      histSub.textContent = result.tipo === "nombre"
+        ? (count === 1 ? "documento enviado con este nombre" : "documentos enviados con este nombre")
+        : (count === 1 ? "documento enviado con esta matrícula" : "documentos enviados con esta matrícula");
       histBox.style.display = "block";
-    } catch (e) {
-      // Si falla la consulta, no mostrar historial (no es crítico)
-    }
+    } catch (e) { /* no crítico */ }
   };
 
   function getFileIcon(ext) {
@@ -464,13 +442,6 @@
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + ' KB';
     return (bytes / 1024 / 1024).toFixed(1) + ' MB';
-  }
-
-  async function getNextTicket() {
-    try {
-      const snap = await getDocs(collection(db, 'documentos'));
-      return String(snap.size + 1).padStart(4, '0');
-    } catch { return String(Math.floor(Math.random() * 9000) + 1000); }
   }
 
   function checkEnviarBtn() {
@@ -498,10 +469,8 @@
     document.getElementById('fileName').textContent = file.name;
     document.getElementById('fileSize').textContent = formatSize(file.size);
     document.getElementById('dropZone').classList.add('has-file');
-
     checkEnviarBtn();
 
-    // Vista previa
     const previewBox = document.getElementById('previewBox');
     previewBox.innerHTML = '';
     const ext = file.name.split('.').pop().toLowerCase();
@@ -528,9 +497,7 @@
 
     if (!result.ok) {
       const errorMsg = document.getElementById('errorMsg');
-      errorMsg.textContent = result.tipo === "digitos_sin_guion"
-        ? "Verifica tu matrícula, recuerda incluir los guiones."
-        : "Ingresa tu matrícula o nombre completo.";
+      errorMsg.textContent = "Ingresa tu matrícula o nombre completo.";
       errorMsg.style.display = 'block';
       return;
     }
@@ -564,16 +531,13 @@
       progressBar.style.width = '88%';
       progressLabel.textContent = 'Enviando al encargado...';
 
-      const ticket = await getNextTicket();
-
       await addDoc(collection(db, 'documentos'), {
         nombre: file.name,
         tamano: file.size,
         tipo: file.type || 'desconocido',
         datos: base64,
-        ticket: ticket,
         matricula: matricula,
-        tipoIdentificacion: result.tipo, // 'matricula' o 'nombre'
+        tipoIdentificacion: result.tipo,
         fecha: serverTimestamp(),
         impreso: false,
         descargado: false
@@ -585,7 +549,6 @@
       setTimeout(() => {
         progressWrap.style.display = 'none';
         document.getElementById('mainForm').style.display = 'none';
-        document.getElementById('ticketNum').textContent = `TICKET #${ticket}`;
         document.getElementById('estudianteBadge').textContent =
           result.tipo === "matricula" ? `Matrícula: ${matricula}` : `Estudiante: ${matricula}`;
         document.getElementById('result').style.display = 'block';
